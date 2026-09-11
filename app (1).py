@@ -75,18 +75,33 @@ Return a STRICT JSON object with this exact structure:
 Do NOT enclose the response in markdown backticks or code blocks. Output pure JSON only.
 """
 
+import time
+
 def extract_and_analyze(images, key):
     client = genai.Client(api_key=key)
     contents = [ANALYSIS_PROMPT]
     for img in images:
         contents.append(img)
     
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=contents,
-        config=types.GenerateContentConfig(response_mime_type="application/json")
-    )
-    return json.loads(response.text)
+    # Priority list of models to try if one is experiencing high demand (503)
+    candidate_models = ["gemini-3.8-flash", "gemini-3.5-flash-preview", "gemini-1.1-pro"]
+    
+    last_err = None
+    for model_name in candidate_models:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                )
+                return json.loads(response.text)
+            except Exception as e:
+                last_err = e
+                time.sleep(2)  # brief pause before retry or fallback
+                continue
+                
+    raise last_err
 
 # ----------------------------------------------------------------------
 # PPTX Generator: Deep Navy, Dark Blue & Teal Theme
