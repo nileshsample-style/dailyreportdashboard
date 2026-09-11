@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import streamlit as st
 from PIL import Image
 from pptx import Presentation
@@ -34,14 +35,13 @@ st.markdown("Transform dashboard screenshots, spreadsheets, or metric graphics d
 # ----------------------------------------------------------------------
 # API Key Handling (Sidebar or Streamlit Secrets)
 # ----------------------------------------------------------------------
-# Check Streamlit Cloud Secrets first, then fallback to sidebar user input
 default_key = ""
 if "GEMINI_API_KEY" in st.secrets:
     default_key = st.secrets["GEMINI_API_KEY"]
 elif os.getenv("GEMINI_API_KEY"):
     default_key = os.getenv("GEMINI_API_KEY")
 
-api_key = st.sidebar.text_input("Gemini API Key", type="password", value=default_key, help="Get your free key at https://aistudio.google.com")
+api_key = st.sidebar.text_input("Gemini API Key", type="password", value=default_key, help="Get your key at [https://aistudio.google.com](https://aistudio.google.com)")
 
 if not api_key:
     st.sidebar.warning("⚠️ Enter your Gemini API Key to enable automated visual extraction.")
@@ -75,16 +75,19 @@ Return a STRICT JSON object with this exact structure:
 Do NOT enclose the response in markdown backticks or code blocks. Output pure JSON only.
 """
 
-import time
-
 def extract_and_analyze(images, key):
     client = genai.Client(api_key=key)
     contents = [ANALYSIS_PROMPT]
     for img in images:
         contents.append(img)
     
-    # Priority list of models to try if one is experiencing high demand (503)
-    candidate_models = ["gemini-3.8-flash", "gemini-3.5-flash-preview", "gemini-1.1-pro"]
+    # Priority list of exact models matching your Google AI Studio account
+    candidate_models = [
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-pro",
+        "gemini-2.5-flash"
+    ]
     
     last_err = None
     for model_name in candidate_models:
@@ -95,10 +98,18 @@ def extract_and_analyze(images, key):
                     contents=contents,
                     config=types.GenerateContentConfig(response_mime_type="application/json")
                 )
-                return json.loads(response.text)
+                text = response.text.strip()
+                # Clean accidental markdown wrapping
+                if text.startswith("```json"):
+                    text = text[7:]
+                elif text.startswith("```"):
+                    text = text[3:]
+                if text.endswith("```"):
+                    text = text[:-3]
+                return json.loads(text.strip())
             except Exception as e:
                 last_err = e
-                time.sleep(2)  # brief pause before retry or fallback
+                time.sleep(2)
                 continue
                 
     raise last_err
@@ -132,7 +143,7 @@ def create_executive_pptx(data, filename="Executive_Dashboard.pptx"):
     tf = title_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
-    p.text = data.get("dashboard_title", "EXECUTIVE PERFORMANCE OVERVIEW").upper()
+    p.text = str(data.get("dashboard_title", "EXECUTIVE PERFORMANCE OVERVIEW")).upper()
     p.font.size = Pt(22)
     p.font.bold = True
     p.font.color.rgb = WHITE
